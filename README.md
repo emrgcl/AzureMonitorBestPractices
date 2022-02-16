@@ -52,8 +52,20 @@ Queries for Demonstration or Use with Slides
 
 1. show that Perf Collection is also enabled in Agent Configurations
 1. Show that the counter duplicates are in Perf Table especially the mmemory
+
+
 1. No name difference between Windows and Linux ... AvailableMB or UtilizationPercentage are named the same for both operating systems
+
+````
+Perf | where ObjectName == 'Memory'  and CounterName == 'Available MBytes'
+| take 1
+```
+
 1. Create alert when a service stops using kusto, and create a service start powershell script using a runbook.
+
+
+
+
 1. Run the following query show that theres the alert there.
 
 ```
