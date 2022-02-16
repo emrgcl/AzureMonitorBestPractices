@@ -1,82 +1,4 @@
-# Azure Monitor Best Practices Demonstration
-
-## Prerequisites
-- Make sure disabling Auto-shutdown of VMS before session. 
-- Workspace created
-    - add Automation Hybrid Worker solution in the summary of the workspace
-- VMS attached to Workspace with MMA
-    - One or two Windows
-    - one linux
-- register the runbook workers
-    ```PowerShell
-    $NewOnPremiseHybridWorkerParameters = @{
-    AutomationAccountName = <nameOfAutomationAccount>
-    AAResourceGroupName   = <nameOfResourceGroup>
-    OMSResourceGroupName  = <nameOfResourceGroup>
-    HybridGroupName       = <nameOfHRWGroup>
-    SubscriptionID        = <subscriptionId>
-    WorkspaceName         = <nameOfLogAnalyticsWorkspace>
-    }
-    .\New-OnPremiseHybridWorker.ps1 @NewOnPremiseHybridWorkerParameters
-    ```
-- Automatio Account created
-    - Change trakcing enabled
-    - runbooks deployed
-    - add Vms as runbook workers
-- VMInsights enabled
-
-
-# Demo  - Insights about insights & Actionable Alerts
-Queries for Demonstration or Use with Slides
-1. Show the environment
-    - show two vms   
-1. stop the spooler service on emreg-web01
-1. Enable VMsinghts - on Spark22WinterWS4
-1. Enable Change tracking on Spark22WinterAA4
-1. Show VMInsights Enabled on the workspace. 
-1. Show Change tracking Eanbled on workspace
-1. Show the frequency of the services.
-1. Use the below query to show what counters collected with Insight Metrics
-    ```
-    InsightsMetrics
-    | where Origin == "vm.azm.ms"
-    | distinct Namespace, Name
-    ```
-1. Note that there's no process Counter Collected. Highlight that counter names are normalized to a common consistent name.
-```
-    InsightsMetrics
-    | where Origin == "vm.azm.ms"
-    | where Namespace == 'LogicalDisk' and Name =='FreeSpacePercentage'
-    | summarize MinSpace = min(Val) by Computer, Namespace,Name
-```
-
-1. show that Perf Collection is also enabled in Agent Configurations
-1. Show that the counter duplicates are in Perf Table especially the mmemory
-1. No name difference between Windows and Linux ... AvailableMB or UtilizationPercentage are named the same for both operating systems
-1. Create alert when a service stops using kusto, and create a service start powershell script using a runbook.
-1. Run the following query show that theres the alert there.
-
-```
-ConfigurationChange
-| where ConfigChangeType == "WindowsServices"
-| where SvcDisplayName == "Print Spooler"
-| where SvcStartupType == "Auto"
-| where SvcChangeType == "State"
-| summarize arg_max(TimeGenerated, *) by Computer, SvcName
-| where SvcState == "Stopped"
-| project TimeGenerated, Computer, SvcName, SvcDisplayName, SvcStartupType, SvcAccount, SvcState, SvcPreviousState
-```
-
-
-# Runbook
-
->Note:  Please dont go in detail for the runbook. The Idea is to trigger the runbook via webhook and show the resultant status of the service started. If theres enough time of asked specically mention about the 
-
-```Powershell
-// ## Modular approach
- 
- // AAM-Caller
-Param
+﻿Param
 (
     [Parameter(Mandatory = $false)]
                 [object]
@@ -124,6 +46,7 @@ if($WebhookData.RequestBody)
         Write-Output "ResourceGroupName === $resourceGroupName"
         Write-Output "WorskpaceId === $workspaceId"
     }​​​​​​​​​​​​​​​​​​​​​​​​​​​​
+    
  
     #Connect-AzureRmAccount
     
@@ -144,8 +67,7 @@ if($WebhookData.RequestBody)
         "Setting context to a specific subscription"  
         Set-AzContext -SubscriptionId $subscriptionid
     }​​​​​​​​​​​​​​​​​​​​​​​​​​​​
-    catch
-    {​​​​​​​​​​​​​​​​​​​​​​​​​​​​
+    catch {​​​​​​​​​​​​​​​​​​​​​​​​​​​​
         if (!$servicePrincipalConnection)
         {​​​​​​​​​​​​​​​​​​​​​​​​​​​​
             $ErrorMessage = "Connection $connectionName not found."
@@ -157,6 +79,7 @@ if($WebhookData.RequestBody)
             throw $_.Exception
         }​​​​​​​​​​​​​​​​​​​​​​​​​​​​
     }​​​​​​​​​​​​​​​​​​​​​​​​​​​​
+
     
     #Getting parameters to run further runbooks
     [String]$automationAccountName = (Get-AutomationVariable -Name "AAM-AutomationAccountName")
@@ -191,71 +114,9 @@ if($WebhookData.RequestBody)
             Update-AzAlertState -AlertId $alertId -State Acknowledged
         }​​​​​​​​​​​​​​​​​​​​​​​​​​​​
         
-    }​​​​​​​​​​​​​​​​​​​​​​​​​​​​
-}​​​​​​​​​​​​​​​​​​​​​​​​​​​​
+    }​​​​​​​​​​​​
+}​​​​​​​​​​​​​​​​​​​​​​​​​
 else
 {​​​​​​​​​​​​​​​​​​​​​​​​​​​​
     Write-Output "Invalid or null Webhook or Webhook RequestBody."
 }​​​​​​​​​​​​​​​​​​​​​​​​​​​​
- 
-```
-
-```Powershell
-// AAM-RecoveryAction
-Param
-(
-    [Parameter(Mandatory = $true)]
-                $alertId,
- 
-    [Parameter(Mandatory = $true)]
-                [string]
-                $svcName,
- 
-    [Parameter(Mandatory = $true)]
-                [string]
-                $ResourceGroupName,
-                
-    [Parameter(Mandatory = $true)]
-                [string]
-                $automationAccountName
-)
- 
-#Setting constants
-$rbkName = "AAM-SetAlertState"
- 
-#Performing recovery action
-$svcState = (Get-Service $svcName).Status
-switch($svcState)
-{​​​​​​​​​​​​​​​​​​​​​​
-    "Stopped"
-    {​​​​​​​​​​​​​​​​​​​​​​
-        $result = (Start-Service -Name $svcName -PassThru).Status
-        if($result -eq "Running")
-        {​​​​​​​​​​​​​​​​​​​​​​
-            Write-Output "SUCCESS - Service $svcName restarted successfully on server $srv"
-        }​​​​​​​​​​​​​​​​​​​​​​
-        else
-        {​​​​​​​​​​​​​​​​​​​​​​
-            Write-Output "ERROR - Something went wrong during service restart !!!"
-        }​​​​​​​​​​​​​​​​​​​​​​
-    }​​​​​​​​​​​​​​​​​​​​​​
-        
-    "Running"
-    {​​​​​​​​​​​​​​​​​​​​​​
-        Write-Output "SUCCESS - Service was already started"
-    }​​​​​​​​​​​​​​​​​​​​​​
- 
-    default
-    {​​​​​​​​​​​​​​​​​​​​​​
-        Write-Output "ERROR - Unexpected service status !!!"
-    }​​​​​​​​​​​​​​​​​​​​​​
-}​​​​​​​​​​​​​​​​​​​​​​
- 
-<#
-Write-Output "Starting runbook $rbkName to set the alert to '$newState' state"
- 
-#Invoking runbook
-$Params = @{​​​​​​​​​​​​​​​​​​​​​​"alertId"=$alertId; "NewState"="$newState"}​​​​​​​​​​​​​​​​​​​​​​
-Start-AzAutomationRunbook -AutomationAccountName $automationAccountName -ResourceGroupName $resourceGroupName -Name $rbkName -Parameters $Params
-#>
-```
